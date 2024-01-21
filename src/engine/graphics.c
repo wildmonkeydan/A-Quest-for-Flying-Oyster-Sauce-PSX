@@ -11,7 +11,7 @@
 #include "stdio.h"
 
 // Global renderer
-static SDL_Renderer* grend;
+static DB* grend;
 // Window dim
 static SDL_Point windowDim;
 
@@ -30,14 +30,14 @@ void init_graphics()
 
 
 // Set global renderer
-void set_global_renderer(SDL_Renderer* rend)
+void set_global_renderer(DB* rend)
 {
     grend = rend;
 }
 
 
 // Get grend
-SDL_Renderer* get_global_renderer()
+DB* get_global_renderer()
 {
     return grend;
 }

@@ -4,6 +4,8 @@
 #ifndef __GRAPHICS__
 #define __GRAPHICS__
 
+#include <psxgpu.h>
+
 #include "stdbool.h"
 
 #include "bitmap.h"
@@ -23,10 +25,10 @@ void init_graphics();
 
 /// Set the global renderer
 /// < rend Renderer
-void set_global_renderer(SDL_Renderer* rend);
+void set_global_renderer(DB* rend);
 
 /// Returns the global renderer
-SDL_Renderer* get_global_renderer();
+DB* get_global_renderer();
 
 /// Clear screen
 /// < r Red

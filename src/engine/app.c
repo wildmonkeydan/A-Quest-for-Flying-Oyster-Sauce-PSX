@@ -21,12 +21,10 @@ static bool isRunning;
 // Is full screen
 static bool isFullscreen;
 
-// Window
-static SDL_Window* window;
-// Renderer
-static SDL_Renderer* rend;
-// Canvas
-static SDL_Texture* canvas;
+// Double buffer variables
+static DB	db[2];
+static int	db_active = 0;
+static char* db_nextpri;
 
 // (Timer) old ticks
 static int oldTicks;
@@ -56,8 +54,11 @@ static Uint8 sceneCount;
 static CONFIG config;
 
 // Joystick
-static SDL_Joystick* joy;
+static uint8_t joy[2][34];
+static uint8_t prevJoy[2][34];
 
+// Heap
+static unsigned char* ramAddr;
 
 // Calculate canvas size and position on screen
 static void app_calc_canvas_prop(int winWidth, int winHeight)
@@ -86,50 +87,75 @@ static void app_calc_canvas_prop(int winWidth, int winHeight)
 static int app_init_SDL()
 {   
     // Init
-    if(SDL_Init(SDL_INIT_EVENTS | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) != 0)
-    {
-        SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR,"Error!","Failed to init SDL!\n",NULL);
-        return 1;
-    }
 
-    // Create window
+    ResetGraph(0);
 
     int windowWidth = config.winWidth;
     int windowHeight = config.winHeight;
 
-    set_dimensions(windowWidth,windowHeight);
+    // Set display and draw environment areas
+    // (display and draw areas must be separate, otherwise hello flicker)
+    SetDefDispEnv(&db[0].disp, 0, 0, windowWidth, windowHeight);
+    SetDefDrawEnv(&db[0].draw, 0, 256, windowWidth, windowHeight);
 
-    window = SDL_CreateWindow(config.title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-				              windowWidth, windowHeight, SDL_WINDOW_RESIZABLE);
-	if(window == NULL)
-	{
-		SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR,"Error!","Failed to create an SDL window!\n",NULL);
-        return 1;
-	}
+    // Enable draw area clear and dither processing
+    setRGB0(&db[0].draw, 0, 0, 0);
+    db[0].draw.isbg = 1;
+    db[0].draw.dtd = 1;
+
+
+    // Define the second set of display/draw environments
+    SetDefDispEnv(&db[1].disp, 0, 256, windowWidth, windowHeight);
+    SetDefDrawEnv(&db[1].draw, 0, 0, windowWidth, windowHeight);
+
+    setRGB0(&db[1].draw, 0, 0, 0);
+    db[1].draw.isbg = 1;
+    db[1].draw.dtd = 1;
+
+    SetDispMask(1);
+
+    // Create window
 
     isFullscreen = false;
     if(config.fullscreen)
         app_toggle_fullscreen();
 
-    // Create renderer
-    rend = SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE);
-    if(rend == NULL)
-    {
-        SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR,"Error!","Failed to create an SDL renderer!\n",NULL);
-        return 1;
-    }
-    SDL_RenderClear(rend);
-    SDL_RenderPresent(rend);
+    // Apply the drawing environment of the first double buffer
+    PutDispEnv(&db[0].disp);
+    PutDrawEnv(&db[0].draw);
 
-    // Hide mouse cursor
-    SDL_ShowCursor(0);
+    // Clear both ordering tables to make sure they are clean at the start
+    ClearOTagR((uint32_t*)db[0].ot, OT_LEN);
+    ClearOTagR((uint32_t*)db[1].ot, OT_LEN);
+
+    // Set primitive pointer address
+    db_nextpri = db[0].p;
+
+    CdInit();
+
+    EnterCriticalSection();
+    InitHeap((u_long*)ramAddr, 1200000);
+    ExitCriticalSection();
+
+    SpuInit();
+
+    // Master volume should be in range 0x0000 - 0x3fff
+    SpuSetCommonMasterVolume(0x3fff, 0x3fff);
+    // Cd volume should be in range 0x0000 - 0x7fff
+    SpuSetCommonCDVolume(0x2fff, 0x2fff);
+    // Set transfer mode 
+    SpuSetTransferMode(SPU_TRANSFER_BY_DMA);
 
     // Open joystick
-    joy = SDL_JoystickOpen(0);
-    if(joy == NULL)
-    {
-        printf("No joystick detected\n");
-    }
+    // Init BIOS pad driver and set pad buffers (buffers are updated
+    // automatically on every V-Blank)
+    InitPAD(&joy[0][0], 34, &joy[1][0], 34);
+
+    // Start pad
+    StartPAD();
+
+    // Don't make pad driver acknowledge V-Blank IRQ (recommended)
+    ChangeClearPAD(0);
 
     return 0;
 }
@@ -138,7 +164,6 @@ static int app_init_SDL()
 // Toggle fullscreen mode
 void app_toggle_fullscreen()
 {
-    SDL_SetWindowFullscreen(window,!isFullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 	isFullscreen = !isFullscreen;
 }
 
@@ -161,24 +186,7 @@ static int app_init(SCENE* arrScenes, int count, const char* assPath)
 
     // Set global renderer & init graphics
     init_graphics();
-    set_global_renderer(rend);
-
-    // Create canvas
-    canvas = SDL_CreateTexture(rend,
-        SDL_PIXELFORMAT_RGBA8888,
-        SDL_TEXTUREACCESS_TARGET,
-        config.canvasWidth,
-        config.canvasHeight);
-    if(canvas == NULL)
-    {
-        SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR,"Error!","Failed to create a texture!\n",NULL);
-        return 1;
-    }
-
-    // Calculate canvas pos & size
-    int w,h;
-    SDL_GetWindowSize(window,&w,&h);
-    app_calc_canvas_prop(w,h);
+    set_global_renderer(&db);
 
     // Initialize audio
     init_samples();
@@ -220,107 +228,77 @@ static int app_init(SCENE* arrScenes, int count, const char* assPath)
 
 // Go through events
 static void app_events()
-{
-    SDL_Event event;
+{    
+    PADTYPE* pad = (PADTYPE*)&joy[0][0];
 
-    // Go through every event
-    while (SDL_PollEvent(&event) != 0)
+    // Joy button down
+    case SDL_JOYBUTTONDOWN:
+        ctr_on_joy_down(event.jbutton.button);
+        break;
+
+    // Joy button up
+    case SDL_JOYBUTTONUP:
+        ctr_on_joy_up(event.jbutton.button);
+        break;
+
+    // Joy axis
+    case SDL_JOYAXISMOTION:
     {
-        switch(event.type)
-        {
-        // Application quit
-        case SDL_QUIT:
-            ask_to_quit();
-            // isRunning = false;
-            return;
-
-        // Window event (resize etc)
-        case SDL_WINDOWEVENT:
-            // Resize
-            if(event.window.windowID == SDL_GetWindowID(window) && event.window.event == SDL_WINDOWEVENT_RESIZED)
-            {
-                app_calc_canvas_prop(event.window.data1,event.window.data2);
-            }
-            break;
-        
-        // Key down event
-        case SDL_KEYDOWN:
-            ctr_on_key_down(event.key.keysym.scancode);
-            break;
-        // Key up event
-        case SDL_KEYUP:
-            ctr_on_key_up(event.key.keysym.scancode);
+        int axis = 0;
+        if(event.jaxis.axis == 0)
+            axis = 0;
+        else if(event.jaxis.axis == 1)
+            axis = 1;
+        else 
             break;
 
-        // Joy button down
-        case SDL_JOYBUTTONDOWN:
-            ctr_on_joy_down(event.jbutton.button);
-            break;
+        float value = (float)event.jaxis.value / 32767.0f;
 
-        // Joy button up
-        case SDL_JOYBUTTONUP:
-            ctr_on_joy_up(event.jbutton.button);
-            break;
-
-        // Joy axis
-        case SDL_JOYAXISMOTION:
-        {
-            int axis = 0;
-            if(event.jaxis.axis == 0)
-                axis = 0;
-            else if(event.jaxis.axis == 1)
-                axis = 1;
-            else 
-                break;
-
-            float value = (float)event.jaxis.value / 32767.0f;
-
-            ctr_on_joy_axis(axis,value);
+        ctr_on_joy_axis(axis,value);
             
-            break;
-        }
+        break;
+    }
 
-        // Joy hat
-        case SDL_JOYHATMOTION:
+    // Joy hat
+    case SDL_JOYHATMOTION:
+    {
+        int v = event.jhat.value;
+        VEC2 stick = vec2(0.0f,0.0f);
+        if(v == SDL_HAT_LEFTUP || v == SDL_HAT_LEFT || v == SDL_HAT_LEFTDOWN)
         {
-            int v = event.jhat.value;
-            VEC2 stick = vec2(0.0f,0.0f);
-            if(v == SDL_HAT_LEFTUP || v == SDL_HAT_LEFT || v == SDL_HAT_LEFTDOWN)
-            {
-                stick.x = -1.0f;
-            }
-
-            if(v == SDL_HAT_RIGHTUP || v == SDL_HAT_RIGHT || v == SDL_HAT_RIGHTDOWN)
-            {
-                stick.x = 1.0f;
-            }
-
-            if(v == SDL_HAT_LEFTUP || v == SDL_HAT_UP || v == SDL_HAT_RIGHTUP)
-            {
-                stick.y = -1.0f;
-            }
-
-            if(v == SDL_HAT_LEFTDOWN || v == SDL_HAT_DOWN || v == SDL_HAT_RIGHTDOWN)
-            {
-                stick.y = 1.0f;
-            }
-
-            ctr_on_joy_axis(0,stick.x);
-            ctr_on_joy_axis(1,stick.y);
-
-            break;
+            stick.x = -1.0f;
         }
 
-        default:
-            break;
+        if(v == SDL_HAT_RIGHTUP || v == SDL_HAT_RIGHT || v == SDL_HAT_RIGHTDOWN)
+        {
+            stick.x = 1.0f;
         }
+
+        if(v == SDL_HAT_LEFTUP || v == SDL_HAT_UP || v == SDL_HAT_RIGHTUP)
+        {
+            stick.y = -1.0f;
+        }
+
+        if(v == SDL_HAT_LEFTDOWN || v == SDL_HAT_DOWN || v == SDL_HAT_RIGHTDOWN)
+        {
+            stick.y = 1.0f;
+        }
+
+        ctr_on_joy_axis(0,stick.x);
+        ctr_on_joy_axis(1,stick.y);
+
+        break;
+    }
+
+    default:
+        break;
     }
 
 }   
 
 
 // Update application
-static void app_update(Uint32 delta)
+static void app_update(uint32_t delta)
 {
     // Calculate timer multiplier
     float tm = (float)((float)delta/1000.0f) / (1.0f/60.0f);
@@ -446,19 +424,16 @@ int app_run(SCENE* arrScenes, int count, CONFIG c)
 {
     config = c;
 
-    // Calculate frame wait value
-    int frame_wait = (int)round(1000.0f / config.fps);
+    // Calculate frame wait value  -  Don't need this, no timing needed on PSX
+    //int frame_wait = (int)round(1000.0f / config.fps);
 
     if(app_init(arrScenes,count,NULL) != 0) return 1;
 
     while(isRunning)
     {
-        // Set old time
-        oldTicks = SDL_GetTicks();
-
         // Update frame
         app_events();
-        app_update(deltaTime);
+        app_update(16);
         app_draw();
 
         // Set new time

@@ -26,62 +26,19 @@ static char* value;
 // Read config
 int read_config(CONFIG* c, const char* path)
 {
-    // Open config file
-    WORDDATA* w = parse_file(path);
-    if(w == NULL)
-    {
-        char err[256];
-        snprintf(err,256,"Failed to open and/or parse a file in %s",path);
-        SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR,"Error!",err,NULL);
-        return 1;
-    }
+    //Overriding this as it's a fixed platform, we don't need configs
 
-    // Read words
-    int count = 0;
-    int i = 0;
-    for(; i < w->wordCount; ++ i)
-    {
-        if(count == 0)
-            key = get_word(w,i);
-        else
-        {
-            value = get_word(w,i);
+    strcpy(c->title, "A Quest for Flying Oyster Sauce");
+    
+    c->winWidth = 320; // Standard PS1 Resolution
+    c->winHeight = 240;
 
-            if(strcmp(key,"title") == 0)
-            {
-                strcpy(c->title,value);
-            }
-            else if(strcmp(key,"window_width") == 0)
-            {
-                c->winWidth = (int)strtol(value,NULL,10);
-            }
-            else if(strcmp(key,"window_height") == 0)
-            {
-                c->winHeight = (int)strtol(value,NULL,10);
-            }
-            else if(strcmp(key,"canvas_width") == 0)
-            {
-                c->canvasWidth = (int)strtol(value,NULL,10);
-            }
-            else if(strcmp(key,"canvas_height") == 0)
-            {
-                c->canvasHeight = (int)strtol(value,NULL,10);
-            }
-            else if(strcmp(key,"fps") == 0)
-            {
-                c->fps = (int)strtol(value,NULL,10);
-            }
-            else if(strcmp(key,"fullscreen") == 0)
-            {
-                c->fullscreen = (bool)strtol(value,NULL,10);
-            }
-        }
+    c->canvasWidth = 256;
+    c->canvasHeight = 192;
 
-        count = !count;
-    }
+    c->fps = 60; // Setting to NTSC for now, will add a region check
 
-    // Free memory
-    destroy_word_data(w);
+    c->fullscreen = true;
 
     return 0;
 }

@@ -16,7 +16,7 @@
 #include "stdlib.h"
 
 // Main function
-int main(int argc, char** argv)
+int main()
 {
     // Set scenes
     SCENE scenes[] = {
