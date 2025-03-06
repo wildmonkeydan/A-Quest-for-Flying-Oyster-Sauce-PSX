@@ -4,30 +4,11 @@
 #ifndef __APPLICATION__
 #define __APPLICATION__
 
-#include <psxapi.h>
-#include <psxgte.h>
-#include <psxgpu.h>
-#include <psxspu.h>
-#include <psxcd.h>
-#include <sys/types.h>
+#include "SDL2/SDL.h"
 #include "scene.h"
 #include "config.h"
 
 #include "stdbool.h"
-
-//
-// Controller Vars
-//
-
-typedef struct _PADTYPE
-{
-	unsigned char	stat;
-	unsigned char	len : 4;
-	unsigned char	type : 4;
-	unsigned short	btn;
-	unsigned char	rs_x, rs_y;
-	unsigned char	ls_x, ls_y;
-} PADTYPE;
 
 /// Toggle fullscreen mode
 void app_toggle_fullscreen();

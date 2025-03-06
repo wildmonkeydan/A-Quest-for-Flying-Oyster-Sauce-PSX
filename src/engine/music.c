@@ -30,6 +30,22 @@ int init_music()
     musicEnabled = true;
     oldVol = 1.0f;
 
+    // Init formats
+    int flags = MIX_INIT_OGG;
+    int initted = Mix_Init(flags);
+    if( (initted&flags) != flags) 
+    {
+        SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR,"Error!","Failed to init audio!\n",NULL);
+        return 0;
+    }
+
+    // Open audio
+    if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 512)==-1) 
+    {
+        SDL_ShowSimpleMessageBox( SDL_MESSAGEBOX_ERROR,"Error!","Failed to open audio!\n",NULL);
+        return 1;
+    }
+
     return 0;
 }   
 
