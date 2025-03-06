@@ -1,0 +1,1 @@
+This is a SDL compatibility layer for the PS1, this will hopefully be able to be used for other projects as well

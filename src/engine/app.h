@@ -4,7 +4,7 @@
 #ifndef __APPLICATION__
 #define __APPLICATION__
 
-#include "SDL2/SDL.h"
+#include "../psxsdl/SDL.h"
 #include "scene.h"
 #include "config.h"
 
